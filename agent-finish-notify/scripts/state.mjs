@@ -46,6 +46,7 @@ const command = process.argv[2] || "status";
 
 if (command === "status") {
   const session = readJson(sessionPath);
+  const taskActive = Boolean(session && session.enabled && session.startedAt);
   console.log(
     JSON.stringify(
       {
@@ -53,6 +54,11 @@ if (command === "status") {
         config: fs.existsSync(configPath) ? readJson(configPath) : null,
         session,
         armed: Boolean(session && session.enabled),
+        taskActive,
+        warning:
+          session && session.enabled && !session.startedAt
+            ? "сессия включена, но задача не начата: вызови arm"
+            : null,
       },
       null,
       2,
@@ -96,14 +102,18 @@ if (command === "status") {
     console.log("OFF");
     process.exit(0);
   }
-  if (!session.startedAt) {
-    console.log("NOSTART");
+  const threshold = Number(readConfig().thresholdMinutes ?? 3);
+  // Таймер не запущен (забыли arm) — считаем от последней активности человека.
+  // Лучше прислать уведомление, чем промолчать из-за пропущенного шага.
+  const start = session.startedAt ?? session.lastUserAt;
+  if (!start) {
+    console.log("NOTARMED");
     process.exit(0);
   }
-  const threshold = Number(readConfig().thresholdMinutes ?? 3);
-  const minutes = Math.round((now() - session.startedAt) / 60000);
+  const minutes = Math.round((now() - start) / 60000);
   const send = threshold === 0 || minutes >= threshold;
-  console.log(`${send ? "SEND" : "SKIP"} ${minutes} ${threshold}`);
+  const auto = session.startedAt ? "" : " auto";
+  console.log(`${send ? "SEND" : "SKIP"} ${minutes} ${threshold}${auto}`);
 } else if (command === "ask") {
   // Перед вопросом: человек только что писал — он у экрана; иначе сообщаем сразу.
   const session = readJson(sessionPath);
