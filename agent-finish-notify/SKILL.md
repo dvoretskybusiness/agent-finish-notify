@@ -99,7 +99,7 @@ const r = await sendNotification(ctx, {
   typeKey: "agent.finished",
   title: "<заголовок>",
   text: "<текст>",
-  url: ctx.account.url("/s/code")
+  url: ctx.account.url("/app/dev/code")
 });
 return JSON.stringify(r);
 '
@@ -108,7 +108,7 @@ return JSON.stringify(r);
 - `id` — `agent-finish:` плюс время старта: повторный вызов обновит запись, а не пришлёт второе письмо.
 - `typeKey` — `agent.finished` для итога и `agent.needs_answer` для вопроса.
 - Текст экранируй как JSON-строку, иначе сниппет сломается.
-- `url` только абсолютный, через `ctx.account.url`, иначе кнопка уйдёт на чужой домен.
+- `url` только абсолютный, через `ctx.account.url`, иначе кнопка уйдёт на чужой домен. Путь — `/app/dev/code`: это Chatium Code с меню аккаунта; `/s/code` открывает окружение без него.
 - Без секретов, токенов и лишних персональных данных.
 
 ## Если не получилось
