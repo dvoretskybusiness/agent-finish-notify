@@ -25,7 +25,7 @@ function writeJson(file, value) {
 }
 
 function readConfig() {
-  return readJson(configPath) ?? { thresholdMinutes: 3 };
+  return readJson(configPath) ?? { thresholdMinutes: 3, questionThresholdSeconds: 30 };
 }
 
 function pruneSessions() {
@@ -64,6 +64,7 @@ if (command === "status") {
   session.enabled = true;
   session.enabledAt = now();
   session.startedAt = now();
+  session.lastUserAt = now();
   writeJson(sessionPath, session);
   console.log(JSON.stringify({ armed: true, startedAt: session.startedAt }));
 } else if (command === "arm") {
@@ -73,9 +74,22 @@ if (command === "status") {
     console.log("OFF");
     process.exit(0);
   }
-  if (!session.startedAt) session.startedAt = now();
+  if (!session.startedAt) {
+    session.startedAt = now();
+    session.lastUserAt = now();
+  }
   writeJson(sessionPath, session);
   console.log(JSON.stringify({ armed: true, startedAt: session.startedAt }));
+} else if (command === "touch") {
+  // Человек написал по ходу задачи: отсчёт вопросов идёт от его сообщения.
+  const session = readJson(sessionPath);
+  if (!session || !session.enabled) {
+    console.log("OFF");
+    process.exit(0);
+  }
+  session.lastUserAt = now();
+  writeJson(sessionPath, session);
+  console.log(JSON.stringify({ lastUserAt: session.lastUserAt }));
 } else if (command === "check") {
   const session = readJson(sessionPath);
   if (!session || !session.enabled) {
@@ -90,6 +104,22 @@ if (command === "status") {
   const minutes = Math.round((now() - session.startedAt) / 60000);
   const send = threshold === 0 || minutes >= threshold;
   console.log(`${send ? "SEND" : "SKIP"} ${minutes} ${threshold}`);
+} else if (command === "ask") {
+  // Перед вопросом: человек только что писал — он у экрана; иначе сообщаем сразу.
+  const session = readJson(sessionPath);
+  if (!session || !session.enabled) {
+    console.log("OFF");
+    process.exit(0);
+  }
+  const config = readConfig();
+  const threshold = Number(config.questionThresholdSeconds ?? 30);
+  const last = session.lastUserAt ?? session.startedAt;
+  if (!last) {
+    console.log(`SEND 0 ${threshold}`);
+    process.exit(0);
+  }
+  const seconds = Math.round((now() - last) / 1000);
+  console.log(`${seconds >= threshold ? "SEND" : "SKIP"} ${seconds} ${threshold}`);
 } else if (command === "done") {
   const session = readJson(sessionPath);
   if (!session) {
@@ -126,6 +156,6 @@ if (command === "status") {
   writeJson(configPath, config);
   console.log(JSON.stringify(config, null, 2));
 } else {
-  console.error("Команды: status, enable, arm, check, done, disarm, config key=value");
+  console.error("Команды: status, enable, arm, touch, check, ask, done, disarm, config key=value");
   process.exit(2);
 }
