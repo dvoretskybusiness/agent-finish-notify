@@ -6,6 +6,8 @@ import path from "node:path";
 
 const root = "/data/external/agent-finish-notify";
 const configPath = path.join(root, "config.json");
+const updatePath = path.join(root, "update.json");
+const REPO_SLUG = "dvoretskybusiness/agent-finish-notify";
 const sessionId = process.env.DSH_SESSION_ID || "unknown-session";
 const sessionPath = path.join(root, "sessions", `${sessionId}.json`);
 
@@ -26,6 +28,80 @@ function writeJson(file, value) {
 
 function readConfig() {
   return readJson(configPath) ?? { thresholdMinutes: 3, questionThresholdSeconds: 30 };
+}
+
+// Версия установленного навыка — из шапки SKILL.md рядом с репозиторием или в окружении.
+function localVersion() {
+  const candidates = [
+    path.join(process.cwd(), ".agents/skills/agent-finish-notify/SKILL.md"),
+    "/data/dsh/skills/agent-finish-notify/SKILL.md",
+  ];
+  for (const file of candidates) {
+    try {
+      const match = fs.readFileSync(file, "utf8").match(/^version:\s*(\S+)/m);
+      if (match) return match[1];
+    } catch {
+      // файла нет — пробуем следующий вариант
+    }
+  }
+  return null;
+}
+
+function compareVersions(a, b) {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+// Раз в сутки спрашиваем GitHub о последнем релизе. Сеть недоступна — молча пропускаем.
+async function refreshUpdate(force = false) {
+  const cached = readJson(updatePath);
+  if (!force && cached && now() - cached.checkedAt < 24 * 3600 * 1000) return cached;
+  const local = localVersion();
+  if (!local) return cached ?? null;
+  let latest = null;
+  let notes = null;
+  let url = null;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO_SLUG}/releases/latest`, {
+      headers: { "User-Agent": "agent-finish-notify", Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      latest = String(json.tag_name || "").replace(/^v/, "");
+      notes = String(json.body || "").slice(0, 800);
+      url = json.html_url || null;
+    }
+  } catch {
+    // нет сети или GitHub недоступен — работе не мешает
+  }
+  const update = {
+    checkedAt: now(),
+    local,
+    latest,
+    updateAvailable: Boolean(latest && compareVersions(latest, local) > 0),
+    notes,
+    url,
+    declinedVersion: cached?.declinedVersion ?? null,
+  };
+  writeJson(updatePath, update);
+  return update;
+}
+
+function updateSummary(update) {
+  if (!update) return null;
+  return {
+    updateAvailable: update.updateAvailable,
+    latest: update.latest,
+    local: update.local,
+    declined: update.declinedVersion === update.latest,
+    url: update.url,
+  };
 }
 
 function pruneSessions() {
@@ -52,6 +128,7 @@ if (command === "status") {
       {
         sessionId,
         config: fs.existsSync(configPath) ? readJson(configPath) : null,
+        update: updateSummary(readJson(updatePath)),
         session,
         armed: Boolean(session && session.enabled),
         taskActive,
@@ -64,6 +141,14 @@ if (command === "status") {
       2,
     ),
   );
+} else if (command === "update-check") {
+  console.log(JSON.stringify(await refreshUpdate(true), null, 2));
+} else if (command === "decline-update") {
+  const update = readJson(updatePath) ?? { local: localVersion() };
+  update.declinedVersion = update.latest ?? null;
+  update.declinedAt = now();
+  writeJson(updatePath, update);
+  console.log(JSON.stringify(updateSummary(update)));
 } else if (command === "enable") {
   pruneSessions();
   const session = readJson(sessionPath) ?? {};
@@ -85,7 +170,10 @@ if (command === "status") {
     session.lastUserAt = now();
   }
   writeJson(sessionPath, session);
-  console.log(JSON.stringify({ armed: true, startedAt: session.startedAt }));
+  const update = await refreshUpdate();
+  console.log(
+    JSON.stringify({ armed: true, startedAt: session.startedAt, update: updateSummary(update) }),
+  );
 } else if (command === "touch") {
   // Человек написал по ходу задачи: отсчёт вопросов идёт от его сообщения.
   const session = readJson(sessionPath);
