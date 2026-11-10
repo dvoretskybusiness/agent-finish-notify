@@ -47,7 +47,7 @@ import { notificationTypesManifest } from "@store/sdk";
 // каналы (центр / почта / Telegram) для сообщений о завершении работы агента.
 app.manifest("@store/notification-types", notificationTypesManifest, {
   key: "agent-finish",
-  title: "Агент: завершение работы",
+  title: "Агент Chatium code: уведомление",
   version: "v1",
   items: [
     { key: "agent.finished", title: "Задача выполнена" },
@@ -64,6 +64,9 @@ import './api/agent-finish-notify'
 
 Правила:
 
+- `title` категории попадает в шапку каждого уведомления после названия аккаунта, поэтому он должен
+  быть нейтральным: событие («задача выполнена», «нужен ответ») пишется в заголовке сообщения, а не
+  здесь. Переименование категории не сбрасывает выбранные каналы.
 - `key` оставь ровно `agent-finish` — на него рассчитывают `sendNotification` и `updateNotificationSettings`.
 - Не меняй и не переформатируй чужие строки: правок должно быть две — новый файл и один импорт.
 - Имя файла занято — возьми другое (`agent-finish-manifest.ts`), но `key` не меняй.
