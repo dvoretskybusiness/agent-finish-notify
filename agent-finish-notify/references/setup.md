@@ -43,6 +43,10 @@ chatium exec 'const {getNotificationSettings} = await import("@store/sdk"); cons
 
 Если оба канала уже подключены — снимки не показывай и ничего не объясняй: скажи, что каналы готовы.
 
+Подробная инструкция Chatium (публичная, без входа):
+https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uvedomleniya-kuda-prihodyat-i-kak-nastroit.md —
+дай ссылку, когда объясняешь подключение, и если человек спрашивает, где почитать.
+
 ## 5. Спроси каналы
 
 «Центр», «почта», «Telegram» — можно несколько. Поясни: центр — когда человек за компьютером, но

@@ -34,6 +34,9 @@ description: Сообщает о завершении работы агента 
 
 Показывай снимки по одному через `present`, а не все сразу.
 
+Полная инструкция Chatium — https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uvedomleniya-kuda-prihodyat-i-kak-nastroit.md
+Дай ссылку, когда объясняешь каналы, и в ответ на «а где почитать». Она публичная, открывается без входа.
+
 ## Состояние
 
 Настройки и отметки сессий — в `/data/external/agent-finish-notify/`. Если скрипта там нет, скопируй: `cp "<папка-навыка>/scripts/state.mjs" /data/external/agent-finish-notify/state.mjs`.
