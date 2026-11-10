@@ -81,7 +81,9 @@ agent-finish-notify/
 ├── SKILL.md                  инструкция агенту
 ├── agents/openai.yaml        название и иконка в меню
 ├── assets/                   снимки интерфейса и иконка
-├── references/declaration.md как добавить категорию в аккаунт
+├── references/
+│   ├── setup.md              первичная настройка и смена каналов
+│   └── declaration.md        как добавить категорию в аккаунт
 └── scripts/state.mjs         состояние: настройки и отметки сессий
 ```
 

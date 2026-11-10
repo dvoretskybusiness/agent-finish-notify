@@ -98,6 +98,24 @@ git -C "$root" worktree remove --force "$tree"
 chatium exec 'const {updateNotificationSettings} = await import("@store/sdk"); return JSON.stringify(await updateNotificationSettings(ctx, { sourceKey: `account:${ctx.account.id}:source:agent-finish`, channels: { inbox: true, email: false, telegram: true, app: false } }))'
 ```
 
+## Если сборка упала
+
+После `push` Source Build может сообщить об ошибке — обычно синтаксис или неверный путь импорта.
+Не оставляй аккаунт в сломанном состоянии: откати свой коммит.
+
+```bash
+root=$(git rev-parse --show-toplevel)
+git -C "$root" fetch origin main
+tree=$(mktemp -d)/main
+git -C "$root" worktree add --detach "$tree" origin/main
+git -C "$tree" revert --no-edit <sha-вашего-коммита>
+git -C "$tree" push origin HEAD:main
+git -C "$root" worktree remove --force "$tree"
+```
+
+Хеш возьми из `git -C "$tree" log -1 --format=%H` до отката. После отката скажи человеку, что
+категорию добавить не удалось, и работай в режиме «все каналы».
+
 ## Если добавить нельзя
 
 Нет прав на push, нет воркспейса, человек против правки кода — не добавляй и не обходи запрет.
