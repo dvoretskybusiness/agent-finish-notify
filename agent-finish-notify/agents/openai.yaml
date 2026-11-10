@@ -1,0 +1,4 @@
+interface:
+  display_name: "Уведомить о завершении"
+  short_description: "Сообщит, когда агент закончит работу"
+  icon_small: "./assets/icon.svg"
