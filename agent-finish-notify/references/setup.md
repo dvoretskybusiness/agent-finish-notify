@@ -63,6 +63,12 @@ chatium exec 'const {updateNotificationSettings} = await import("@store/sdk"); r
 Ошибка «Unknown or unavailable notification source» — категория ещё не собралась: подожди минуту,
 повтори, затем вернись к шагу 2.
 
+Сохрани выбранные каналы, чтобы потом называть их точно:
+
+```bash
+node /data/external/agent-finish-notify/state.mjs set-channels '{"inbox":true,"email":false,"telegram":true}'
+```
+
 ## 7. Спроси порог
 
 3 минуты, 10, 30 или всегда (`0`). Поясни: меньше — больше сообщений по мелким правкам, больше —
@@ -78,6 +84,8 @@ chatium exec 'const {updateNotificationSettings} = await import("@store/sdk"); r
 node /data/external/agent-finish-notify/state.mjs config thresholdMinutes=3
 node /data/external/agent-finish-notify/state.mjs enable
 ```
+
+Ответь по шаблону «Ответ после включения» из `SKILL.md`: коротко, с фактическими порогом и каналами.
 
 ## 9. Проверочное уведомление
 

@@ -157,7 +157,29 @@ if (command === "status") {
   session.startedAt = now();
   session.lastUserAt = now();
   writeJson(sessionPath, session);
-  console.log(JSON.stringify({ armed: true, startedAt: session.startedAt }));
+  const config = readConfig();
+  console.log(
+    JSON.stringify({
+      armed: true,
+      startedAt: session.startedAt,
+      thresholdMinutes: config.thresholdMinutes ?? 3,
+      channels: config.channels ?? null,
+    }),
+  );
+} else if (command === "set-channels") {
+  const raw = process.argv[3] || "{}";
+  let channels;
+  try {
+    channels = JSON.parse(raw);
+  } catch {
+    console.error("Нужен JSON, например '{\"inbox\":true,\"email\":false,\"telegram\":true}'");
+    process.exit(2);
+  }
+  const config = readConfig();
+  config.channels = channels;
+  config.updatedAt = new Date().toISOString();
+  writeJson(configPath, config);
+  console.log(JSON.stringify(config, null, 2));
 } else if (command === "arm") {
   pruneSessions();
   const session = readJson(sessionPath);
