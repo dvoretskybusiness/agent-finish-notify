@@ -154,16 +154,17 @@ if (command === "status") {
   const session = readJson(sessionPath) ?? {};
   session.enabled = true;
   session.enabledAt = now();
-  session.startedAt = now();
+  session.startedAt = null; // включение — не задача: отсчёт начнёт arm
   session.lastUserAt = now();
   writeJson(sessionPath, session);
   const config = readConfig();
   console.log(
     JSON.stringify({
       armed: true,
-      startedAt: session.startedAt,
+      startedAt: null,
       thresholdMinutes: config.thresholdMinutes ?? 3,
       channels: config.channels ?? null,
+      reminder: "перед каждым ask_user_question — state.mjs ask",
     }),
   );
 } else if (command === "set-channels") {
@@ -234,12 +235,15 @@ if (command === "status") {
   const config = readConfig();
   const threshold = Number(config.questionThresholdSeconds ?? 30);
   const last = session.lastUserAt ?? session.startedAt;
+  const base = session.startedAt ?? session.lastUserAt ?? now();
+  const id = `agent-finish:${Math.floor(base / 1000)}:question`;
   if (!last) {
-    console.log(`SEND 0 ${threshold}`);
+    console.log(`SEND 0 ${threshold} ${id}`);
     process.exit(0);
   }
   const seconds = Math.round((now() - last) / 1000);
-  console.log(`${seconds >= threshold ? "SEND" : "SKIP"} ${seconds} ${threshold}`);
+  const send = seconds >= threshold;
+  console.log(`${send ? "SEND" : "SKIP"} ${seconds} ${threshold}${send ? ` ${id}` : ""}`);
 } else if (command === "done") {
   const session = readJson(sessionPath);
   if (!session) {
