@@ -23,14 +23,25 @@ ln -sfn "$DST" "$PROFILE/node_modules/$PLUGIN_NAME"
 
 if [ -f "$PATCH" ]; then
   cp -a "$PATCH" "$PATCH.bak.$(date +%Y%m%d-%H%M%S)"
+else
+  : > "$PATCH"
 fi
 
-if ! grep -q "$PLUGIN_NAME" "$PATCH" 2>/dev/null; then
-  if [ ! -s "$PATCH" ] || [ "$(tr -d '[:space:]' < "$PATCH")" = "[]" ]; then
-    printf '%s\n' '- insert:' '    - id: chatium-notify-panel' "      name: $PLUGIN_NAME" > "$PATCH"
-  else
-    printf '\n%s\n' '- insert:' '    - id: chatium-notify-panel' "      name: $PLUGIN_NAME" >> "$PATCH"
-  fi
+# Содержимое без комментариев и пробелов: пусто или "[]" — плагинов нет.
+meaningful="$(sed 's/#.*$//' "$PATCH" | tr -d '[:space:]')"
+
+if printf '%s' "$meaningful" | grep -q "$PLUGIN_NAME"; then
+  # уже установлен — ничего не меняем
+  :
+elif [ -z "$meaningful" ] || [ "$meaningful" = "[]" ]; then
+  # Сохраняем комментарии, убираем пустой список и дописываем блок.
+  awk '{ if ($0 ~ /^[[:space:]]*\[\][[:space:]]*(#.*)?$/) next; print }' "$PATCH" > "$PATCH.tmp"
+  printf '%s\n' '- insert:' '    - id: chatium-notify-panel' "      name: $PLUGIN_NAME" >> "$PATCH.tmp"
+  mv "$PATCH.tmp" "$PATCH"
+else
+  # Есть другие плагины: добавляем ещё один элемент списка.
+  printf '\n' >> "$PATCH"
+  printf '%s\n' '- insert:' '    - id: chatium-notify-panel' "      name: $PLUGIN_NAME" >> "$PATCH"
 fi
 
 echo "плагин: $DST"
