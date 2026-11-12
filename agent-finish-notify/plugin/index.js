@@ -217,8 +217,22 @@ export function apply(ctx) {
         pendingApprovals.delete(session.id)
         const started = turnStarted.get(session)
         turnStarted.delete(session)
+        const elapsed = started === undefined ? 0 : (event.time ?? Date.now()) - started
+        const reason = event.data?.reason?.kind
+
+        if (reason === 'aborted') return
+
+        if (reason === 'interrupted' || (reason !== undefined && reason !== 'completed')) {
+          sendChatiumNotification({
+            id: `agent-finish:${session.id}:interrupted:${event.seq ?? Date.now()}`,
+            typeKey: 'agent.finished',
+            title: 'Прервано: задача не завершена',
+            text: `${sessionTitle(session)}\nПроцесс Chatium Code остановился — откройте сессию, чтобы продолжить.`,
+          })
+          return
+        }
+
         if (started === undefined) return
-        const elapsed = (event.time ?? Date.now()) - started
         if (elapsed < thresholdMs()) return
         if (userIsWatching()) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
