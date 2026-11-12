@@ -444,13 +444,13 @@ window.__ModuleLoader__.load({
         if (!started.current) return
         const elapsed = Date.now() - started.current
         started.current = 0
-        if (props.server && props.server.available) return
         const current = latest.current
         if (!current.enabled || elapsed < current.thresholdMs) return
         const focused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()
         if (current.quiet && focused) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
-        showNotification('Задача выполнена', 'Агент закончил работу · ' + minutes + ' мин')
+        showNotification('Задача выполнена', pageTitle() + ' · ' + minutes + ' мин')
+        setBadge()
         if (current.sound) playSound(current.soundId, current.volume)
       }, [running])
 
@@ -504,7 +504,7 @@ window.__ModuleLoader__.load({
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ focused: document.hasFocus(), at: Date.now() }),
+                body: JSON.stringify({ focused: true, at: Date.now() }),
               }).catch(() => {})
             } catch {}
           }
@@ -513,11 +513,31 @@ window.__ModuleLoader__.load({
           window.addEventListener('focus', postPresence)
           window.addEventListener('blur', postPresence)
           document.addEventListener('visibilitychange', postPresence)
+          window.addEventListener('pagehide', () => {
+            try {
+              navigator.sendBeacon(presenceUrl, JSON.stringify({ focused: false, at: Date.now() }))
+            } catch {}
+          })
+
+          const clearBadge = () => {
+            try {
+              if (document.title.startsWith('● ')) document.title = document.title.slice(2)
+            } catch {}
+          }
+          const setBadge = () => {
+            try {
+              if (!document.title.startsWith('● ')) document.title = '● ' + document.title
+            } catch {}
+          }
+          const pageTitle = () => {
+            try { return document.title.replace(/^●\s*/, '') || 'Chatium Code' } catch { return 'Chatium Code' }
+          }
+          window.addEventListener('focus', clearBadge)
+          document.addEventListener('visibilitychange', () => { if (!document.hidden) clearBadge() })
 
           let lastApprovalKey = null
           setInterval(() => {
             try {
-              if (server.available) { lastApprovalKey = null; return }
               const card = document.querySelector('[data-approval-key]')
               const key = card ? card.getAttribute('data-approval-key') : null
               if (!key) { lastApprovalKey = null; return }
@@ -526,7 +546,8 @@ window.__ModuleLoader__.load({
               const current = settings.get()
               if (!current.enabled) return
               if (current.quiet && document.hasFocus()) return
-              showNotification('Нужен ответ', 'Агент ждёт подтверждения действия')
+              showNotification('Нужен ответ', pageTitle() + ' — агент ждёт подтверждения')
+              setBadge()
               if (current.sound) playSound(current.soundId, current.volume)
             } catch {}
           }, 1500)
