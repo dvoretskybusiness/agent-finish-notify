@@ -113,6 +113,22 @@ window.__ModuleLoader__.load({
       }
     }
 
+    const clearBadge = () => {
+      try {
+        if (document.title.startsWith('● ')) document.title = document.title.slice(2)
+      } catch {}
+    }
+
+    const setBadge = () => {
+      try {
+        if (!document.title.startsWith('● ')) document.title = '● ' + document.title
+      } catch {}
+    }
+
+    const pageTitle = () => {
+      try { return document.title.replace(/^●\s*/, '') || 'Chatium Code' } catch { return 'Chatium Code' }
+    }
+
     function permission() {
       try {
         if (typeof Notification === 'undefined') return 'unsupported'
@@ -234,6 +250,7 @@ window.__ModuleLoader__.load({
       const h = React.createElement
       const settings = useStore(props.store)
       const panel = useStore(props.panel)
+      const journal = props.log ? useStore(props.log) : { items: [] }
       const [perm, setPerm] = React.useState(permission())
       const [pos, setPos] = React.useState(() => {
         try {
@@ -360,8 +377,20 @@ window.__ModuleLoader__.load({
           },
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
+      h('button', {
+        type: 'button',
+        onClick: () => {
+          showNotification('Задача выполнена', pageTitle() + ' · 1 мин')
+          setBadge()
+          if (settings.sound) playSound(settings.soundId, settings.volume)
+        },
+        style: { width: '100%', marginTop: '8px', padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
+      }, 'Смоделировать завершение'),
+      section('Журнал'),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px', fontFamily: 'ui-monospace, monospace', fontSize: '10px', color: palette.muted } },
+        (journal.items.length === 0 ? ['пока пусто'] : journal.items).map((line, index) => h('div', { key: index }, line))),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Уведомления приходят через Chatium — в центр, Telegram или на почту.'),
+        'Настройки хранятся на этой машине. Версия 1.4.4.'),
       )
     }
 
@@ -429,6 +458,12 @@ window.__ModuleLoader__.load({
 
     function TurnWatcher(props) {
       const settings = useStore(props.store)
+      React.useEffect(() => {
+        const id = props.sessionId
+        if (!id || !props.activeSessions) return
+        props.activeSessions.add(id)
+        return () => props.activeSessions.delete(id)
+      }, [props.sessionId])
       const running = typeof props.useSession === 'function'
         ? props.useSession((session) => Boolean(session && session.running === true))
         : false
@@ -445,6 +480,7 @@ window.__ModuleLoader__.load({
         const elapsed = Date.now() - started.current
         started.current = 0
         const current = latest.current
+        if (props.log) props.log.set({ items: [new Date().toLocaleTimeString() + ' ui финиш ' + Math.round(elapsed / 1000) + 'с', ...props.log.get().items].slice(0, 8) })
         if (!current.enabled || elapsed < current.thresholdMs) return
         const focused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus()
         if (current.quiet && focused) return
@@ -459,7 +495,7 @@ window.__ModuleLoader__.load({
 
     return {
       name: 'chatium-notify-panel',
-      inject: ['slots'],
+      inject: ['slots', 'sessions'],
       apply(ctx) {
         try {
           const settings = createStore(readSettings())
@@ -519,19 +555,6 @@ window.__ModuleLoader__.load({
             } catch {}
           })
 
-          const clearBadge = () => {
-            try {
-              if (document.title.startsWith('● ')) document.title = document.title.slice(2)
-            } catch {}
-          }
-          const setBadge = () => {
-            try {
-              if (!document.title.startsWith('● ')) document.title = '● ' + document.title
-            } catch {}
-          }
-          const pageTitle = () => {
-            try { return document.title.replace(/^●\s*/, '') || 'Chatium Code' } catch { return 'Chatium Code' }
-          }
           window.addEventListener('focus', clearBadge)
           document.addEventListener('visibilitychange', () => { if (!document.hidden) clearBadge() })
 
@@ -553,6 +576,13 @@ window.__ModuleLoader__.load({
           }, 1500)
 
           const panel = createStore({ open: false })
+          const log = createStore({ items: [] })
+          const addLog = (text) => {
+            const items = [new Date().toLocaleTimeString() + ' ' + text, ...log.get().items].slice(0, 8)
+            log.set({ items })
+          }
+          const activeSessions = new Set()
+          const sessionRuns = new Map()
           const debug = { registered: [], failed: [] }
           try { window.__chatiumNotifyDebug = debug } catch {}
 
@@ -568,12 +598,44 @@ window.__ModuleLoader__.load({
           register('conversation.session.header.utilities', 'notify-panel-button', 10,
             () => ({ open: () => panel.set({ open: true }) }), HeaderButton)
           register('shell.overlay', 'notify-panel', 46,
-            () => ({ store: settings, panel }), Panel)
+            () => ({ store: settings, panel, log }), Panel)
           register('conversation.input.overlay', 'notify-panel-turn', 81,
-            () => ({ store: settings, server }), TurnWatcher)
+            (sessionId) => ({ store: settings, server, sessionId, activeSessions, log }), TurnWatcher)
           register('settings.general.item', 'notify-panel-settings', 61,
             () => ({ open: () => panel.set({ open: true }) }), SettingsRow)
 
+          try {
+            addLog('подписка: ' + typeof ctx.sessions?.list?.subscribe)
+            const offSessions = ctx.sessions.list.subscribe(() => {
+              const state = ctx.sessions.list.getSnapshot()
+              if (!state || !state.ids) { addLog('нет снимка'); return }
+              const now = Date.now()
+              for (const id of state.ids || []) {
+                const entry = state.byId ? state.byId[id] : null
+                if (!entry) continue
+                const run = sessionRuns.get(id)
+                if (entry.running) {
+                  if (!run) { sessionRuns.set(id, { startedAt: now }); addLog(id.slice(-6) + ' старт') }
+                  continue
+                }
+                if (!run) continue
+                sessionRuns.delete(id)
+                const elapsed = now - run.startedAt
+                const current = settings.get()
+                addLog(id.slice(-6) + ' финиш ' + Math.round(elapsed / 1000) + 'с активна=' + activeSessions.has(id))
+                if (activeSessions.has(id)) continue
+                if (!current.enabled || elapsed < current.thresholdMs) continue
+                const minutes = Math.max(1, Math.round(elapsed / 60000))
+                const title = entry.displayTitle || entry.title || 'Chatium Code'
+                showNotification('Задача выполнена', title + ' · ' + minutes + ' мин')
+                setBadge()
+                if (current.sound) playSound(current.soundId, current.volume)
+              }
+            })
+            ctx.effect(() => offSessions, 'notify-panel: sessions watch')
+          } catch (error) {
+            addLog('ошибка подписки: ' + (error && error.message ? error.message : String(error)))
+          }
           try {
             window.__chatiumNotifyPanel = () => settings.get()
           } catch {}
