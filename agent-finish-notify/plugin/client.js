@@ -250,7 +250,6 @@ window.__ModuleLoader__.load({
       const h = React.createElement
       const settings = useStore(props.store)
       const panel = useStore(props.panel)
-      const journal = props.log ? useStore(props.log) : { items: [] }
       const [perm, setPerm] = React.useState(permission())
       const [pos, setPos] = React.useState(() => {
         try {
@@ -377,20 +376,8 @@ window.__ModuleLoader__.load({
           },
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
-      h('button', {
-        type: 'button',
-        onClick: () => {
-          showNotification('Задача выполнена', pageTitle() + ' · 1 мин')
-          setBadge()
-          if (settings.sound) playSound(settings.soundId, settings.volume)
-        },
-        style: { width: '100%', marginTop: '8px', padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
-      }, 'Смоделировать завершение'),
-      section('Журнал'),
-      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px', fontFamily: 'ui-monospace, monospace', fontSize: '10px', color: palette.muted } },
-        (journal.items.length === 0 ? ['пока пусто'] : journal.items).map((line, index) => h('div', { key: index }, line))),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 1.4.5.'),
+        'Настройки хранятся на этой машине. Версия 1.4.6.'),
       )
     }
 
