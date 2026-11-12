@@ -21,6 +21,7 @@ const CATEGORY_TITLE = 'Агент Chatium code: уведомление'
 
 const presence = { focused: false, at: 0, activeSessionId: null }
 const turnStarted = new WeakMap()
+const turnInfo = new WeakMap()
 const pendingApprovals = new Map()
 
 function readSettings() {
@@ -273,6 +274,32 @@ return JSON.stringify({ ok: true });
       if ((session?.header?.delegationDepth ?? 0) > 0) return
       if (event.type === 'turn/start') {
         turnStarted.set(session, event.time ?? Date.now())
+        turnInfo.set(session, { lastText: '', agentNotified: false })
+        return
+      }
+
+      if (event.type === 'assistant/message') {
+        const blocks = event.data?.message?.content ?? []
+        const text = blocks
+          .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+          .map((block) => block.text)
+          .join('\n')
+          .trim()
+        if (text !== '') {
+          const info = turnInfo.get(session) ?? { lastText: '', agentNotified: false }
+          info.lastText = text
+          turnInfo.set(session, info)
+        }
+        return
+      }
+
+      if (event.type === 'tool/call') {
+        const args = typeof event.data?.arguments === 'string' ? event.data.arguments : JSON.stringify(event.data?.arguments ?? '')
+        if (args.includes('sendNotification') && args.includes('agent-finish')) {
+          const info = turnInfo.get(session) ?? { lastText: '', agentNotified: false }
+          info.agentNotified = true
+          turnInfo.set(session, info)
+        }
         return
       }
 
@@ -316,12 +343,20 @@ return JSON.stringify({ ok: true });
         if (started === undefined) return
         if (elapsed < thresholdMs()) return
         if (userIsWatching()) return
+        const info = turnInfo.get(session)
+        if (info && info.agentNotified) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
+        const clean = String(info?.lastText ?? '')
+          .replace(/[#*_`>]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+        const first = (clean.split(/(?<=[.!?])\s/)[0] || clean).slice(0, 70)
+        const rest = clean.slice(first.length).trim().slice(0, 320)
         sendChatiumNotification({
           id: `agent-finish:${session.id}:done:${event.seq ?? started}`,
           typeKey: 'agent.finished',
-          title: 'Готово: задача выполнена',
-          text: `${sessionTitle(session)}\nДлительность: ${minutes} мин`,
+          title: first === '' ? 'Готово: задача выполнена' : 'Готово: ' + first,
+          text: rest === '' ? `${sessionTitle(session)}\nДлительность: ${minutes} мин` : `${sessionTitle(session)}\n${rest}`,
         })
       }
     } catch (error) {
