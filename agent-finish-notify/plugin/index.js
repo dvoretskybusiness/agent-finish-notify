@@ -23,6 +23,7 @@ const presence = { focused: false, at: 0, activeSessionId: null }
 const turnStarted = new WeakMap()
 const turnInfo = new WeakMap()
 const pendingApprovals = new Map()
+const pendingQuestions = new Map()
 
 function readSettings() {
   try {
@@ -49,6 +50,17 @@ function userIsWatching() {
 
 function watchingSession(sessionId) {
   return userIsWatching() && presence.activeSessionId === sessionId
+}
+
+function notifyQuestion(entry) {
+  if (!entry || entry.notified || watchingSession(entry.sessionId)) return
+  entry.notified = true
+  sendChatiumNotification({
+    id: entry.id,
+    typeKey: 'agent.needs_answer',
+    title: 'Нужен ответ: ' + String(entry.header || 'вопрос').slice(0, 50),
+    text: entry.sessionTitle + '\n' + String(entry.question || entry.header || '').slice(0, 220),
+  })
 }
 
 function notifyApproval(entry) {
@@ -197,6 +209,7 @@ export function apply(ctx) {
             presence.at = Date.now()
             presence.activeSessionId = typeof parsed?.activeSessionId === 'string' ? parsed.activeSessionId : null
             for (const entry of pendingApprovals.values()) notifyApproval(entry)
+            for (const entry of pendingQuestions.values()) notifyQuestion(entry)
             response.writeHead(200, json)
             response.end('{"ok":true}')
           } catch {
@@ -295,11 +308,44 @@ return JSON.stringify({ ok: true });
 
       if (event.type === 'tool/call') {
         const args = typeof event.data?.arguments === 'string' ? event.data.arguments : JSON.stringify(event.data?.arguments ?? '')
+        const name = String(event.data?.name ?? '')
+
         if (args.includes('sendNotification') && args.includes('agent-finish')) {
           const info = turnInfo.get(session) ?? { lastText: '', agentNotified: false }
           info.agentNotified = true
+          if (args.includes('agent.needs_answer')) info.agentQuestionNotified = true
           turnInfo.set(session, info)
         }
+
+        if (name === 'ask_user_question' || name.endsWith('__ask_user_question')) {
+          try {
+            const parsed = JSON.parse(args)
+            const first = parsed && parsed.questions && parsed.questions[0]
+            if (first) {
+              const info = turnInfo.get(session) ?? { lastText: '', agentNotified: false }
+              if (!info.agentQuestionNotified) {
+                const entry = {
+                  sessionId: session.id,
+                  callId: event.data?.callId || String(event.seq),
+                  header: first.header || 'вопрос',
+                  question: first.question || first.header || '',
+                  sessionTitle: sessionTitle(session),
+                  notified: false,
+                  id: `agent-finish:${session.id}:question:${event.data?.callId || event.seq}`,
+                }
+                pendingQuestions.set(session.id, entry)
+                notifyQuestion(entry)
+              }
+            }
+          } catch {}
+        }
+        return
+      }
+
+      if (event.type === 'tool/result') {
+        const pending = pendingQuestions.get(session.id)
+        const callId = event.data?.message?.toolCallId
+        if (pending && callId && pending.callId === callId) pendingQuestions.delete(session.id)
         return
       }
 
