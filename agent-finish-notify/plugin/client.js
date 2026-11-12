@@ -390,7 +390,7 @@ window.__ModuleLoader__.load({
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px', fontFamily: 'ui-monospace, monospace', fontSize: '10px', color: palette.muted } },
         (journal.items.length === 0 ? ['пока пусто'] : journal.items).map((line, index) => h('div', { key: index }, line))),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 1.4.4.'),
+        'Настройки хранятся на этой машине. Версия 1.4.5.'),
       )
     }
 
@@ -462,7 +462,11 @@ window.__ModuleLoader__.load({
         const id = props.sessionId
         if (!id || !props.activeSessions) return
         props.activeSessions.add(id)
-        return () => props.activeSessions.delete(id)
+        if (props.ping) props.ping()
+        return () => {
+          props.activeSessions.delete(id)
+          if (props.ping) props.ping()
+        }
       }, [props.sessionId])
       const running = typeof props.useSession === 'function'
         ? props.useSession((session) => Boolean(session && session.running === true))
@@ -501,6 +505,7 @@ window.__ModuleLoader__.load({
           const settings = createStore(readSettings())
           settings.subscribe(() => writeSettings(settings.get()))
 
+          const activeSessions = new Set()
           const apiBase = (() => { try { return new URL(document.baseURI).pathname.replace(/[/]+$/, '') } catch { return '' } })()
           const settingsUrl = apiBase + '/__notify-panel/settings'
           let saveTimer = null
@@ -540,7 +545,7 @@ window.__ModuleLoader__.load({
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ focused: true, at: Date.now() }),
+                body: JSON.stringify({ focused: true, at: Date.now(), activeSessionId: [...activeSessions][0] || null }),
               }).catch(() => {})
             } catch {}
           }
@@ -551,7 +556,7 @@ window.__ModuleLoader__.load({
           document.addEventListener('visibilitychange', postPresence)
           window.addEventListener('pagehide', () => {
             try {
-              navigator.sendBeacon(presenceUrl, JSON.stringify({ focused: false, at: Date.now() }))
+              navigator.sendBeacon(presenceUrl, JSON.stringify({ focused: false, at: Date.now(), activeSessionId: null }))
             } catch {}
           })
 
@@ -581,7 +586,6 @@ window.__ModuleLoader__.load({
             const items = [new Date().toLocaleTimeString() + ' ' + text, ...log.get().items].slice(0, 8)
             log.set({ items })
           }
-          const activeSessions = new Set()
           const sessionRuns = new Map()
           const debug = { registered: [], failed: [] }
           try { window.__chatiumNotifyDebug = debug } catch {}
@@ -600,7 +604,7 @@ window.__ModuleLoader__.load({
           register('shell.overlay', 'notify-panel', 46,
             () => ({ store: settings, panel, log }), Panel)
           register('conversation.input.overlay', 'notify-panel-turn', 81,
-            (sessionId) => ({ store: settings, server, sessionId, activeSessions, log }), TurnWatcher)
+            (sessionId) => ({ store: settings, server, sessionId, activeSessions, log, ping: postPresence }), TurnWatcher)
           register('settings.general.item', 'notify-panel-settings', 61,
             () => ({ open: () => panel.set({ open: true }) }), SettingsRow)
 

@@ -17,7 +17,7 @@ const DEFAULT_THRESHOLD_MS = 30000
 const PRESENCE_TTL_MS = 45000
 const CATEGORY_TITLE = 'Агент Chatium code: уведомление'
 
-const presence = { focused: false, at: 0 }
+const presence = { focused: false, at: 0, activeSessionId: null }
 const turnStarted = new WeakMap()
 const pendingApprovals = new Map()
 
@@ -44,8 +44,12 @@ function userIsWatching() {
   return presence.focused && Date.now() - presence.at < PRESENCE_TTL_MS
 }
 
+function watchingSession(sessionId) {
+  return userIsWatching() && presence.activeSessionId === sessionId
+}
+
 function notifyApproval(entry) {
-  if (!entry || entry.notified || userIsWatching()) return
+  if (!entry || entry.notified || watchingSession(entry.sessionId)) return
   entry.notified = true
   sendChatiumNotification({
     id: `agent-finish:${entry.sessionId}:approval:${entry.key}`,
@@ -170,9 +174,8 @@ export function apply(ctx) {
             const parsed = JSON.parse(await readBody(request, 2048))
             presence.focused = parsed?.focused === true
             presence.at = Date.now()
-            if (!presence.focused) {
-              for (const entry of pendingApprovals.values()) notifyApproval(entry)
-            }
+            presence.activeSessionId = typeof parsed?.activeSessionId === 'string' ? parsed.activeSessionId : null
+            for (const entry of pendingApprovals.values()) notifyApproval(entry)
             response.writeHead(200, json)
             response.end('{"ok":true}')
           } catch {
