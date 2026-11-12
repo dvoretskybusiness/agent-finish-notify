@@ -377,7 +377,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 1.4.6.'),
+        'Настройки хранятся на этой машине. Версия 1.4.8.'),
       )
     }
 
