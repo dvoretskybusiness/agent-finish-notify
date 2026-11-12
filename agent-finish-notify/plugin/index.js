@@ -12,6 +12,8 @@ const SETTINGS_DIR = path.join(process.env.DSH_HOME || '/data/dsh', 'notify-pane
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json')
 const SETTINGS_ROUTE = '/__notify-panel/settings'
 const PRESENCE_ROUTE = '/__notify-panel/presence'
+const CHANNELS_ROUTE = '/__notify-panel/channels'
+const KB_URL = 'https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uvedomleniya-kuda-prihodyat-i-kak-nastroit.md'
 
 const DEFAULT_THRESHOLD_MS = 30000
 const PRESENCE_TTL_MS = 45000
@@ -109,6 +111,24 @@ return JSON.stringify(result);
   })
 }
 
+function runChatium(script) {
+  return new Promise((resolve) => {
+    execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error, stdout) => {
+      if (error) return resolve({ ok: false, error: error.message })
+      try {
+        const line = String(stdout)
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .pop()
+        resolve({ ok: true, data: JSON.parse(line) })
+      } catch {
+        resolve({ ok: false, error: 'bad chatium output' })
+      }
+    })
+  })
+}
+
 function readBody(request, limit = 8192) {
   return new Promise((resolve, reject) => {
     let body = ''
@@ -185,6 +205,67 @@ export function apply(ctx) {
         },
       }),
     'notify-panel: presence route',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: CHANNELS_ROUTE,
+        handler: async (request, response) => {
+          if (request.method === 'GET') {
+            const result = await runChatium(`
+const { getNotificationSettings } = await import("@store/sdk");
+const settings = await getNotificationSettings(ctx, {});
+const all = [...(settings.sources || []), ...(settings.workspaces || [])];
+const source = all.find((item) => item.schema && item.schema.key === "agent-finish");
+return JSON.stringify({
+  hasSource: Boolean(source),
+  channels: source ? source.channels : null,
+  title: source ? source.title : null,
+  telegramConnected: Boolean(settings.telegram && settings.telegram.connected),
+  email: ctx.user.confirmedEmail || null,
+  accountUrl: ctx.account.url("/app")
+});
+`)
+            response.writeHead(result.ok ? 200 : 502, json)
+            response.end(JSON.stringify(result.ok ? { ok: true, data: result.data, kbUrl: KB_URL } : { ok: false, error: result.error }))
+            return
+          }
+
+          if (request.method === 'POST') {
+            try {
+              const parsed = JSON.parse(await readBody(request, 2048))
+              const channels = parsed && parsed.channels ? parsed.channels : null
+              if (!channels) throw new Error('channels required')
+              const payload = JSON.stringify({
+                inbox: channels.inbox === true,
+                email: channels.email === true,
+                telegram: channels.telegram === true,
+                app: false,
+              })
+              const result = await runChatium(`
+const { updateNotificationSettings } = await import("@store/sdk");
+await updateNotificationSettings(ctx, {
+  sourceKey: \`account:\${ctx.account.id}:source:agent-finish\`,
+  channels: ${payload}
+});
+return JSON.stringify({ ok: true });
+`)
+              response.writeHead(result.ok ? 200 : 502, json)
+              response.end(JSON.stringify(result.ok ? { ok: true } : { ok: false, error: result.error }))
+            } catch {
+              response.writeHead(400, json)
+              response.end('{"ok":false}')
+            }
+            return
+          }
+
+          response.writeHead(405, json)
+          response.end('{}')
+        },
+      }),
+    'notify-panel: channels route',
   )
 
   ctx.on('session/event', (session, event) => {

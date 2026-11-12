@@ -155,6 +155,8 @@ window.__ModuleLoader__.load({
       accent: '#7c9cff',
     }
 
+    const linkStyle = { color: palette.accent, fontSize: '12px', textDecoration: 'none' }
+
     const selectStyle = {
       background: 'rgba(255,255,255,0.08)',
       color: palette.text,
@@ -250,6 +252,12 @@ window.__ModuleLoader__.load({
       const h = React.createElement
       const settings = useStore(props.store)
       const panel = useStore(props.panel)
+      const channelState = useStore(props.channels)
+      React.useEffect(() => {
+        if (!panel.open) return
+        if (channelState.data || channelState.loading) return
+        props.loadChannels()
+      }, [panel.open, channelState.data, channelState.loading])
       const [perm, setPerm] = React.useState(permission())
       const [pos, setPos] = React.useState(() => {
         try {
@@ -358,6 +366,21 @@ window.__ModuleLoader__.load({
           style: { width: '120px', accentColor: palette.accent },
         })),
 
+      section('Каналы'),
+      channelState.data === null && channelState.error === null ? h('div', { style: { color: palette.muted, fontSize: '12px' } }, 'Загружаю…') : null,
+      channelState.error !== null || (channelState.data && !channelState.data.hasSource) ? h('div', { style: { color: palette.muted, fontSize: '12px', lineHeight: 1.45 } },
+        channelState.error !== null ? 'Переключатели каналов появятся после следующего запуска Chatium Code.' : 'Каналы ещё не настроены: объявите категорию и подключите доставку.',
+        h('div', { style: { display: 'flex', gap: '12px', marginTop: '8px', flexWrap: 'wrap' } },
+          h('a', { href: (channelState.data && channelState.data.accountUrl) || '#', target: '_blank', rel: 'noreferrer', style: linkStyle }, 'Открыть Chatium'),
+          h('a', { href: channelState.kbUrl || 'https://chatium.ru', target: '_blank', rel: 'noreferrer', style: linkStyle }, 'Как настроить'))) : null,
+      channelState.data && channelState.data.hasSource ? h('div', {},
+        h(Row, { title: 'Центр уведомлений' },
+          h(Toggle, { value: Boolean(channelState.data.channels.inbox), onChange: () => props.saveChannels({ inbox: !channelState.data.channels.inbox }) })),
+        h(Row, { title: 'Telegram', hint: channelState.data.telegramConnected ? null : 'не подключён' },
+          h(Toggle, { value: Boolean(channelState.data.channels.telegram), onChange: () => channelState.data.telegramConnected && props.saveChannels({ telegram: !channelState.data.channels.telegram }) })),
+        h(Row, { title: 'Почта', hint: channelState.data.email || 'не подтверждена' },
+          h(Toggle, { value: Boolean(channelState.data.channels.email), onChange: () => channelState.data.email && props.saveChannels({ email: !channelState.data.channels.email }) }))) : null,
+
       section('Разрешение браузера'),
       h('div', { style: { color: palette.muted, fontSize: '12px', marginBottom: '8px' } },
         perm === 'granted' ? 'Системные уведомления разрешены' : perm === 'denied' ? 'Запрещены в настройках браузера' : perm === 'unsupported' ? '��раузер не поддерживает' : 'Ещё не спрашивали'),
@@ -377,7 +400,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 1.4.8.'),
+        'Настройки хранятся на этой машине. Версия 2.0.0.'),
       )
     }
 
@@ -492,6 +515,36 @@ window.__ModuleLoader__.load({
           const settings = createStore(readSettings())
           settings.subscribe(() => writeSettings(settings.get()))
 
+          const channels = createStore({ loading: false, data: null, error: null, kbUrl: null })
+          const loadChannels = () => {
+            if (channels.get().loading) return
+            channels.set({ ...channels.get(), loading: true, error: null })
+            try {
+              fetch(apiBase + '/__notify-panel/channels', { credentials: 'same-origin' })
+                .then((response) => response.json())
+                .then((result) => {
+                  if (result && result.ok) channels.set({ loading: false, data: result.data, error: null, kbUrl: result.kbUrl || null })
+                  else channels.set({ loading: false, data: null, error: (result && result.error) || 'ошибка', kbUrl: result && result.kbUrl ? result.kbUrl : null })
+                })
+                .catch((error) => channels.set({ loading: false, data: null, error: String(error), kbUrl: null }))
+            } catch (error) {
+              channels.set({ loading: false, data: null, error: String(error), kbUrl: null })
+            }
+          }
+          const saveChannels = (patch) => {
+            const current = channels.get()
+            if (!current.data) return
+            const next = { ...current.data.channels, ...patch }
+            channels.set({ ...current, data: { ...current.data, channels: next } })
+            try {
+              fetch(apiBase + '/__notify-panel/channels', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ channels: next }),
+              }).catch(() => {})
+            } catch {}
+          }
           const activeSessions = new Set()
           const apiBase = (() => { try { return new URL(document.baseURI).pathname.replace(/[/]+$/, '') } catch { return '' } })()
           const settingsUrl = apiBase + '/__notify-panel/settings'
@@ -589,7 +642,7 @@ window.__ModuleLoader__.load({
           register('conversation.session.header.utilities', 'notify-panel-button', 10,
             () => ({ open: () => panel.set({ open: true }) }), HeaderButton)
           register('shell.overlay', 'notify-panel', 46,
-            () => ({ store: settings, panel, log }), Panel)
+            () => ({ store: settings, panel, log, channels, loadChannels, saveChannels }), Panel)
           register('conversation.input.overlay', 'notify-panel-turn', 81,
             (sessionId) => ({ store: settings, server, sessionId, activeSessions, log, ping: postPresence }), TurnWatcher)
           register('settings.general.item', 'notify-panel-settings', 61,
