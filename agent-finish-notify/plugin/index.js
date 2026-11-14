@@ -159,14 +159,24 @@ const result = await sendNotification(ctx, {
 });
 return JSON.stringify(result);
 `
-  execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error) => {
-    if (error) {
-      logLine('send failed ' + id + ': ' + error.message.split('\n')[0])
-      console.error('notify-panel: send failed:', error.message)
-    } else {
-      logLine('sent ' + id)
-    }
-  })
+  const attempt = (number) => {
+    execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error) => {
+      if (!error) {
+        logLine('sent ' + id)
+        return
+      }
+      const detail = String(error.message || '').replace(/\s+/g, ' ').slice(0, 500)
+      if (number < 3) {
+        const delay = number === 1 ? 5000 : 15000
+        logLine('retry ' + number + ' in ' + Math.round(delay / 1000) + 's ' + id + ': ' + detail)
+        setTimeout(() => attempt(number + 1), delay)
+        return
+      }
+      logLine('send failed after 3 attempts ' + id + ': ' + detail)
+      console.error('notify-panel: send failed:', detail)
+    })
+  }
+  attempt(1)
 }
 
 function runChatium(script) {
