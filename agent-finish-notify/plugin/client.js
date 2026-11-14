@@ -369,7 +369,7 @@ window.__ModuleLoader__.load({
       section('Каналы'),
       channelState.data === null && channelState.error === null ? h('div', { style: { color: palette.muted, fontSize: '12px' } }, 'Загружаю…') : null,
       channelState.error !== null || (channelState.data && !channelState.data.hasSource) ? h('div', { style: { color: palette.muted, fontSize: '12px', lineHeight: 1.45 } },
-        channelState.error !== null ? 'Переключатели каналов появятся после следующего запуска Chatium Code.' : 'Каналы ещё не настроены: объявите категорию и подключите доставку.',
+        channelState.error !== null ? 'Не удалось загрузить каналы: ' + String(channelState.error).slice(0, 120) : 'Каналы ещё не настроены: объявите категорию и подключите доставку.',
         h('div', { style: { display: 'flex', gap: '12px', marginTop: '8px', flexWrap: 'wrap' } },
           h('a', { href: (channelState.data && channelState.data.accountUrl) || '#', target: '_blank', rel: 'noreferrer', style: linkStyle }, 'Открыть Chatium'),
           h('a', { href: channelState.kbUrl || 'https://chatium.ru', target: '_blank', rel: 'noreferrer', style: linkStyle }, 'Как настроить'))) : null,
@@ -400,7 +400,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 2.0.4.'),
+        'Настройки хранятся на этой машине. Версия 2.0.6.'),
       )
     }
 
@@ -520,8 +520,11 @@ window.__ModuleLoader__.load({
             if (channels.get().loading) return
             channels.set({ ...channels.get(), loading: true, error: null })
             try {
-              fetch(apiBase + '/__notify-panel/channels', { credentials: 'same-origin' })
+              const controller = new AbortController()
+              const timer = setTimeout(() => controller.abort(), 10000)
+              fetch(apiBase + '/__notify-panel/channels', { credentials: 'same-origin', signal: controller.signal })
                 .then((response) => response.json())
+                .finally(() => clearTimeout(timer))
                 .then((result) => {
                   if (result && result.ok) channels.set({ loading: false, data: result.data, error: null, kbUrl: result.kbUrl || null })
                   else channels.set({ loading: false, data: null, error: (result && result.error) || 'ошибка', kbUrl: result && result.kbUrl ? result.kbUrl : null })

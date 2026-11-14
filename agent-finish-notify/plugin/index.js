@@ -18,6 +18,13 @@ const KB_URL = 'https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uved
 const DEFAULT_THRESHOLD_MS = 30000
 const PRESENCE_TTL_MS = 45000
 const CATEGORY_TITLE = 'Агент Chatium code: уведомление'
+const LOG_FILE = path.join(process.env.DSH_HOME || '/data/dsh', 'notify-panel.log')
+
+function logLine(message) {
+  try {
+    fs.appendFileSync(LOG_FILE, new Date().toISOString() + ' ' + message + '\n')
+  } catch {}
+}
 
 const presence = { focused: false, at: 0, activeSessionId: null }
 const turnStarted = new WeakMap()
@@ -52,26 +59,43 @@ function watchingSession(sessionId) {
   return userIsWatching() && presence.activeSessionId === sessionId
 }
 
+function deliver(payload, sessionId = null) {
+  const blocked = sessionId === null ? userIsWatching() : watchingSession(sessionId)
+  if (!blocked) {
+    sendChatiumNotification(payload)
+    return
+  }
+  const at = presence.at
+  setTimeout(() => {
+    try {
+      // heartbeat advanced and the page is still focused — человек за экраном
+      if (presence.focused && presence.at !== at) return
+      if (sessionId === null ? userIsWatching() : watchingSession(sessionId)) return
+      sendChatiumNotification(payload)
+    } catch {}
+  }, PRESENCE_TTL_MS + 5000)
+}
+
 function notifyQuestion(entry) {
   if (!entry || entry.notified || watchingSession(entry.sessionId)) return
   entry.notified = true
-  sendChatiumNotification({
+  deliver({
     id: entry.id,
     typeKey: 'agent.needs_answer',
     title: 'Нужен ответ: ' + String(entry.header || 'вопрос').slice(0, 50),
     text: entry.sessionTitle + '\n' + String(entry.question || entry.header || '').slice(0, 220),
-  })
+  }, entry.sessionId)
 }
 
 function notifyApproval(entry) {
   if (!entry || entry.notified || watchingSession(entry.sessionId)) return
   entry.notified = true
-  sendChatiumNotification({
+  deliver({
     id: `agent-finish:${entry.sessionId}:approval:${entry.key}`,
     typeKey: 'agent.needs_answer',
     title: 'Нужен ответ: подтвердите действие',
     text: `${entry.title}\nАгент ждёт подтверждения действия`,
-  })
+  }, entry.sessionId)
 }
 
 function cachedTitle(sessionId) {
@@ -108,10 +132,12 @@ function sessionTitle(session) {
 function sendChatiumNotification({ id, typeKey, title, text }) {
   const script = `
 const { sendNotification } = await import("@store/sdk");
+const user = ctx.user;
+if (!user) throw new Error("chatium user is unavailable");
 const result = await sendNotification(ctx, {
   id: ${JSON.stringify(id)},
   source: { key: "agent-finish", title: ${JSON.stringify(CATEGORY_TITLE)} },
-  recipients: { userIds: [ctx.user.id] },
+  recipients: { userIds: [user.id] },
   typeKey: ${JSON.stringify(typeKey)},
   title: ${JSON.stringify(title)},
   text: ${JSON.stringify(text)},
@@ -120,7 +146,12 @@ const result = await sendNotification(ctx, {
 return JSON.stringify(result);
 `
   execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error) => {
-    if (error) console.error('notify-panel: send failed:', error.message)
+    if (error) {
+      logLine('send failed ' + id + ': ' + error.message.split('\n')[0])
+      console.error('notify-panel: send failed:', error.message)
+    } else {
+      logLine('sent ' + id)
+    }
   })
 }
 
@@ -238,7 +269,7 @@ return JSON.stringify({
   channels: source ? source.channels : null,
   title: source ? source.title : null,
   telegramConnected: Boolean(settings.telegram && settings.telegram.connected),
-  email: ctx.user.confirmedEmail || null,
+  email: ctx.user ? ctx.user.confirmedEmail : null,
   accountUrl: ctx.account.url("/app")
 });
 `)
@@ -388,7 +419,6 @@ return JSON.stringify({ ok: true });
 
         if (started === undefined) return
         if (elapsed < thresholdMs()) return
-        if (userIsWatching()) return
         const info = turnInfo.get(session)
         if (info && info.agentNotified) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
@@ -398,7 +428,7 @@ return JSON.stringify({ ok: true });
           .trim()
         const first = (clean.split(/(?<=[.!?])\s/)[0] || clean).slice(0, 70)
         const rest = clean.slice(first.length).trim().slice(0, 320)
-        sendChatiumNotification({
+        deliver({
           id: `agent-finish:${session.id}:done:${event.seq ?? started}`,
           typeKey: 'agent.finished',
           title: first === '' ? 'Готово: задача выполнена' : 'Готово: ' + first,
