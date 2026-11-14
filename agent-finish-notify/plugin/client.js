@@ -400,7 +400,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 2.0.6.'),
+        'Настройки хранятся на этой машине. Версия 2.0.7.'),
       )
     }
 
@@ -622,6 +622,32 @@ window.__ModuleLoader__.load({
               if (current.sound) playSound(current.soundId, current.volume)
             } catch {}
           }, 1500)
+
+          const postInteraction = (payload) => {
+            try {
+              fetch(apiBase + '/__notify-panel/interaction', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              }).catch(() => {})
+            } catch {}
+          }
+
+          let consentSeen = false
+          setInterval(() => {
+            try {
+              const present = Boolean(document.querySelector('.chatium-consent-card'))
+              if (present === consentSeen) return
+              consentSeen = present
+              const sessionId = [...activeSessions][0] || null
+              postInteraction(present ? { active: true, sessionId } : { answered: true, sessionId })
+              if (present && !document.hasFocus()) {
+                showNotification('Нужен ответ', pageTitle() + ' — подтвердите действие')
+                setBadge()
+              }
+            } catch {}
+          }, 1000)
 
           const panel = createStore({ open: false })
           const log = createStore({ items: [] })

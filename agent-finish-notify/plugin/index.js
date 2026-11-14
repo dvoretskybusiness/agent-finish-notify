@@ -13,6 +13,7 @@ const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json')
 const SETTINGS_ROUTE = '/__notify-panel/settings'
 const PRESENCE_ROUTE = '/__notify-panel/presence'
 const CHANNELS_ROUTE = '/__notify-panel/channels'
+const INTERACTION_ROUTE = '/__notify-panel/interaction'
 const KB_URL = 'https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uvedomleniya-kuda-prihodyat-i-kak-nastroit.md'
 
 const DEFAULT_THRESHOLD_MS = 30000
@@ -31,6 +32,19 @@ const turnStarted = new WeakMap()
 const turnInfo = new WeakMap()
 const pendingApprovals = new Map()
 const pendingQuestions = new Map()
+const taskState = new WeakMap()
+const consentTimers = new Map()
+const consentAnswered = new Map()
+const consentNotified = new Set()
+
+function stateOf(session) {
+  let state = taskState.get(session)
+  if (!state) {
+    state = { lastUserAt: 0, jobs: new Set() }
+    taskState.set(session, state)
+  }
+  return state
+}
 
 function readSettings() {
   try {
@@ -313,12 +327,53 @@ return JSON.stringify({ ok: true });
     'notify-panel: channels route',
   )
 
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: INTERACTION_ROUTE,
+        handler: async (request, response) => {
+          if (request.method !== 'POST') {
+            response.writeHead(405, json)
+            response.end('{}')
+            return
+          }
+          try {
+            const parsed = JSON.parse(await readBody(request, 2048))
+            const sessionId = typeof parsed?.sessionId === 'string' ? parsed.sessionId : null
+            if (sessionId && parsed?.answered === true) consentAnswered.set(sessionId, Date.now())
+            response.writeHead(200, json)
+            response.end('{"ok":true}')
+          } catch {
+            response.writeHead(400, json)
+            response.end('{"ok":false}')
+          }
+        },
+      }),
+    'notify-panel: interaction route',
+  )
+
   ctx.on('session/event', (session, event) => {
     try {
       if ((session?.header?.delegationDepth ?? 0) > 0) return
       if (event.type === 'turn/start') {
         turnStarted.set(session, event.time ?? Date.now())
         turnInfo.set(session, { lastText: '', agentNotified: false })
+        return
+      }
+
+      if (event.type === 'user/message') {
+        stateOf(session).lastUserAt = event.time ?? Date.now()
+        return
+      }
+
+      if (event.type === 'job/registered') {
+        if (event.data && event.data.jobId) stateOf(session).jobs.add(event.data.jobId)
+        return
+      }
+
+      if (event.type === 'job/settled') {
+        if (event.data && event.data.jobId) stateOf(session).jobs.delete(event.data.jobId)
         return
       }
 
@@ -348,6 +403,26 @@ return JSON.stringify({ ok: true });
           turnInfo.set(session, info)
         }
 
+        if (name === 'generate_media') {
+          const callId = event.data?.callId || String(event.seq)
+          let prompt = ''
+          try { prompt = String(JSON.parse(args).prompt || '') } catch {}
+          const timer = setTimeout(() => {
+            consentTimers.delete(callId)
+            if (consentNotified.has(callId)) return
+            const answeredAt = consentAnswered.get(session.id) || 0
+            if (answeredAt > Date.now() - 60000) return
+            consentNotified.add(callId)
+            deliver({
+              id: `agent-finish:${session.id}:consent:${callId}`,
+              typeKey: 'agent.needs_answer',
+              title: 'Нужен ответ: подтвердите генерацию',
+              text: `${sessionTitle(session)}\n${prompt.slice(0, 180)}`,
+            }, session.id)
+          }, 8000)
+          consentTimers.set(callId, timer)
+        }
+
         if (name === 'ask_user_question' || name.endsWith('__ask_user_question')) {
           try {
             const parsed = JSON.parse(args)
@@ -374,6 +449,11 @@ return JSON.stringify({ ok: true });
       }
 
       if (event.type === 'tool/result') {
+        const resultCall = event.data?.message?.toolCallId
+        if (resultCall && consentTimers.has(resultCall)) {
+          clearTimeout(consentTimers.get(resultCall))
+          consentTimers.delete(resultCall)
+        }
         const pending = pendingQuestions.get(session.id)
         const callId = event.data?.message?.toolCallId
         if (pending && callId && pending.callId === callId) pendingQuestions.delete(session.id)
@@ -418,7 +498,10 @@ return JSON.stringify({ ok: true });
         }
 
         if (started === undefined) return
-        if (elapsed < thresholdMs()) return
+        const state = stateOf(session)
+        if (state.jobs.size > 0) return
+        const taskStart = state.lastUserAt > 0 ? state.lastUserAt : started
+        if ((event.time ?? Date.now()) - taskStart < thresholdMs()) return
         const info = turnInfo.get(session)
         if (info && info.agentNotified) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
