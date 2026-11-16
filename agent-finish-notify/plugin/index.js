@@ -165,14 +165,25 @@ return JSON.stringify(result);
         logLine('sent ' + id)
         return
       }
-      const detail = String(error.message || '').replace(/\s+/g, ' ').slice(0, 500)
+      const detail = String(error.message || '').replace(/\s+/g, ' ').slice(0, 1200)
+      const stderr = String(error.stderr || '').replace(/\s+/g, ' ').slice(0, 600)
+      if (/Login required|login required/i.test(detail + ' ' + stderr)) {
+        try {
+          fetch('http://127.0.0.1:' + (process.env.PORT || 8888) + '/__code/relogin', {
+            method: 'POST',
+            headers: { 'x-chatium-relogin': '1' },
+            signal: AbortSignal.timeout(2000),
+          }).catch(() => {})
+          logLine('relogin requested ' + id)
+        } catch {}
+      }
       if (number < 3) {
         const delay = number === 1 ? 5000 : 15000
-        logLine('retry ' + number + ' in ' + Math.round(delay / 1000) + 's ' + id + ': ' + detail)
+        logLine('retry ' + number + ' in ' + Math.round(delay / 1000) + 's ' + id + ': ' + detail + (stderr ? ' :: ' + stderr : ''))
         setTimeout(() => attempt(number + 1), delay)
         return
       }
-      logLine('send failed after 3 attempts ' + id + ': ' + detail)
+      logLine('send failed after 3 attempts ' + id + ': ' + detail + (stderr ? ' :: ' + stderr : ''))
       console.error('notify-panel: send failed:', detail)
     })
   }
