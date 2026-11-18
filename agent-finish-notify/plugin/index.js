@@ -172,7 +172,7 @@ const result = await sendNotification(ctx, {
 return JSON.stringify(result);
 `
   const attempt = (number) => {
-    execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error) => {
+    execFile('chatium', ['exec', '--write', script], { cwd: '/data/workspace', timeout: 25000 }, (error) => {
       if (!error) {
         logLine('sent ' + id)
         return
@@ -202,9 +202,9 @@ return JSON.stringify(result);
   attempt(1)
 }
 
-function runChatium(script) {
+function runChatium(script, write = false) {
   return new Promise((resolve) => {
-    execFile('chatium', ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error, stdout) => {
+    execFile('chatium', write ? ['exec', '--write', script] : ['exec', script], { cwd: '/data/workspace', timeout: 25000 }, (error, stdout) => {
       if (error) return resolve({ ok: false, error: error.message })
       try {
         const line = String(stdout)
@@ -343,7 +343,7 @@ await updateNotificationSettings(ctx, {
   channels: ${payload}
 });
 return JSON.stringify({ ok: true });
-`)
+`, true)
               response.writeHead(result.ok ? 200 : 502, json)
               response.end(JSON.stringify(result.ok ? { ok: true } : { ok: false, error: result.error }))
             } catch {
