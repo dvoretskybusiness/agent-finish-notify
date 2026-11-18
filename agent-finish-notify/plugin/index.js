@@ -79,11 +79,15 @@ function deliver(payload, sessionId = null) {
     sendChatiumNotification(payload)
     return
   }
+  logLine('defer ' + payload.id)
   const at = presence.at
   setTimeout(() => {
     try {
       // heartbeat advanced and the page is still focused — человек за экраном
-      if (presence.focused && presence.at !== at) return
+      if (presence.focused && presence.at !== at) {
+        logLine('skip alive ' + payload.id)
+        return
+      }
       if (sessionId === null ? userIsWatching() : watchingSession(sessionId)) return
       sendChatiumNotification(payload)
     } catch {}
@@ -91,7 +95,11 @@ function deliver(payload, sessionId = null) {
 }
 
 function notifyQuestion(entry) {
-  if (!entry || entry.notified || watchingSession(entry.sessionId)) return
+  if (!entry || entry.notified) return
+  if (watchingSession(entry.sessionId)) {
+    logLine('skip watching ' + entry.id)
+    return
+  }
   entry.notified = true
   deliver({
     id: entry.id,
@@ -102,7 +110,11 @@ function notifyQuestion(entry) {
 }
 
 function notifyApproval(entry) {
-  if (!entry || entry.notified || watchingSession(entry.sessionId)) return
+  if (!entry || entry.notified) return
+  if (watchingSession(entry.sessionId)) {
+    logLine('skip watching approval ' + entry.sessionId + ':' + entry.key)
+    return
+  }
   entry.notified = true
   deliver({
     id: `agent-finish:${entry.sessionId}:approval:${entry.key}`,
@@ -389,7 +401,7 @@ return JSON.stringify({ ok: true });
       }
 
       if (event.type === 'job/registered') {
-        if (event.data && event.data.jobId) stateOf(session).jobs.add(event.data.jobId)
+        if (event.data && event.data.jobId && event.data.kind !== 'subagent') stateOf(session).jobs.add(event.data.jobId)
         return
       }
 
@@ -520,11 +532,20 @@ return JSON.stringify({ ok: true });
 
         if (started === undefined) return
         const state = stateOf(session)
-        if (state.jobs.size > 0) return
+        if (state.jobs.size > 0) {
+          logLine('skip jobs ' + session.id + ' n=' + state.jobs.size)
+          return
+        }
         const taskStart = state.lastUserAt > 0 ? state.lastUserAt : started
-        if ((event.time ?? Date.now()) - taskStart < thresholdMs()) return
+        if ((event.time ?? Date.now()) - taskStart < thresholdMs()) {
+          logLine('skip short ' + session.id)
+          return
+        }
         const info = turnInfo.get(session)
-        if (info && info.agentNotified) return
+        if (info && info.agentNotified) {
+          logLine('skip agent-sent ' + session.id)
+          return
+        }
         const minutes = Math.max(1, Math.round(elapsed / 60000))
         const clean = String(info?.lastText ?? '')
           .replace(/[#*_`>]/g, '')

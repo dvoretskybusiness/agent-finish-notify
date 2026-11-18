@@ -400,7 +400,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 2.0.9.'),
+        'Настройки хранятся на этой машине. Версия 2.1.0.'),
       )
     }
 
@@ -493,6 +493,7 @@ window.__ModuleLoader__.load({
         if (!started.current) return
         const elapsed = Date.now() - started.current
         started.current = 0
+        if (props.subagentIds && props.subagentIds.has(props.sessionId)) return
         const current = latest.current
         if (props.log) props.log.set({ items: [new Date().toLocaleTimeString() + ' ui финиш ' + Math.round(elapsed / 1000) + 'с', ...props.log.get().items].slice(0, 8) })
         if (!current.enabled || elapsed < current.thresholdMs) return
@@ -656,6 +657,7 @@ window.__ModuleLoader__.load({
             log.set({ items })
           }
           const sessionRuns = new Map()
+          const subagentIds = new Set()
           const debug = { registered: [], failed: [] }
           try { window.__chatiumNotifyDebug = debug } catch {}
 
@@ -673,7 +675,7 @@ window.__ModuleLoader__.load({
           register('shell.overlay', 'notify-panel', 46,
             () => ({ store: settings, panel, log, channels, loadChannels, saveChannels }), Panel)
           register('conversation.input.overlay', 'notify-panel-turn', 81,
-            (sessionId) => ({ store: settings, server, sessionId, activeSessions, log, ping: postPresence }), TurnWatcher)
+            (sessionId) => ({ store: settings, server, sessionId, activeSessions, log, ping: postPresence, subagentIds }), TurnWatcher)
           register('settings.general.item', 'notify-panel-settings', 61,
             () => ({ open: () => panel.set({ open: true }) }), SettingsRow)
 
@@ -686,6 +688,11 @@ window.__ModuleLoader__.load({
               for (const id of state.ids || []) {
                 const entry = state.byId ? state.byId[id] : null
                 if (!entry) continue
+                if (entry.origin === 'subagent' || entry.parentId) {
+                  subagentIds.add(id)
+                  continue
+                }
+                subagentIds.delete(id)
                 const run = sessionRuns.get(id)
                 if (entry.running) {
                   if (!run) { sessionRuns.set(id, { startedAt: now }); addLog(id.slice(-6) + ' старт') }
