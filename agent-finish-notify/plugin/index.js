@@ -27,7 +27,7 @@ function logLine(message) {
   } catch {}
 }
 
-const presence = { focused: false, at: 0, activeSessionId: null }
+const presence = { focused: false, visible: true, at: 0, activeSessionId: null }
 const turnStarted = new WeakMap()
 const turnInfo = new WeakMap()
 const pendingApprovals = new Map()
@@ -66,7 +66,7 @@ function thresholdMs() {
 }
 
 function userIsWatching() {
-  return presence.focused && Date.now() - presence.at < PRESENCE_TTL_MS
+  return presence.visible !== false && presence.at > 0 && Date.now() - presence.at < PRESENCE_TTL_MS
 }
 
 function watchingSession(sessionId) {
@@ -284,6 +284,7 @@ export function apply(ctx) {
           try {
             const parsed = JSON.parse(await readBody(request, 2048))
             presence.focused = parsed?.focused === true
+            presence.visible = parsed?.visible !== false
             presence.at = Date.now()
             presence.activeSessionId = typeof parsed?.activeSessionId === 'string' ? parsed.activeSessionId : null
             for (const entry of pendingApprovals.values()) notifyApproval(entry)
