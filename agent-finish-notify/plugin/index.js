@@ -17,7 +17,7 @@ const INTERACTION_ROUTE = '/__notify-panel/interaction'
 const KB_URL = 'https://chatium.ru/app/knowledge/~/baza-znaniy/vash-akkaunt/uvedomleniya-kuda-prihodyat-i-kak-nastroit.md'
 
 const DEFAULT_THRESHOLD_MS = 30000
-const PRESENCE_TTL_MS = 45000
+const PRESENCE_TTL_MS = 120000
 const CATEGORY_TITLE = 'Агент Chatium code: уведомление'
 const LOG_FILE = path.join(process.env.DSH_HOME || '/data/dsh', 'notify-panel.log')
 
@@ -27,7 +27,7 @@ function logLine(message) {
   } catch {}
 }
 
-const presence = { focused: false, visible: true, at: 0, activeSessionId: null }
+const tabs = new Map()
 const turnStarted = new WeakMap()
 const turnInfo = new WeakMap()
 const pendingApprovals = new Map()
@@ -65,30 +65,39 @@ function thresholdMs() {
   return Number.isFinite(value) && value >= 0 ? value : DEFAULT_THRESHOLD_MS
 }
 
-function userIsWatching() {
-  return presence.visible !== false && presence.at > 0 && Date.now() - presence.at < PRESENCE_TTL_MS
+function liveTabs() {
+  const now = Date.now()
+  const alive = []
+  for (const [id, tab] of tabs) {
+    if (!tab || tab.closed === true) continue
+    if (now - tab.at >= PRESENCE_TTL_MS) continue
+    alive.push({ id, ...tab })
+  }
+  return alive
 }
 
-function watchingSession(sessionId) {
-  return userIsWatching() && presence.activeSessionId === sessionId
+function anyLive() {
+  return liveTabs().length > 0
+}
+
+function sessionActive(sessionId) {
+  return liveTabs().some((tab) => tab.activeSessionId === sessionId)
 }
 
 function deliver(payload, sessionId = null) {
-  const blocked = sessionId === null ? userIsWatching() : watchingSession(sessionId)
+  const blocked = sessionId === null ? anyLive() : sessionActive(sessionId)
   if (!blocked) {
     sendChatiumNotification(payload)
     return
   }
   logLine('defer ' + payload.id)
-  const at = presence.at
   setTimeout(() => {
     try {
-      // heartbeat advanced and the page is still focused — человек за экраном
-      if (presence.focused && presence.at !== at) {
+      const stillBlocked = sessionId === null ? anyLive() : sessionActive(sessionId)
+      if (stillBlocked) {
         logLine('skip alive ' + payload.id)
         return
       }
-      if (sessionId === null ? userIsWatching() : watchingSession(sessionId)) return
       sendChatiumNotification(payload)
     } catch {}
   }, PRESENCE_TTL_MS + 5000)
@@ -96,8 +105,8 @@ function deliver(payload, sessionId = null) {
 
 function notifyQuestion(entry) {
   if (!entry || entry.notified) return
-  if (watchingSession(entry.sessionId)) {
-    logLine('skip watching ' + entry.id)
+  if (sessionActive(entry.sessionId)) {
+    logLine('skip active-session ' + entry.id)
     return
   }
   entry.notified = true
@@ -111,8 +120,8 @@ function notifyQuestion(entry) {
 
 function notifyApproval(entry) {
   if (!entry || entry.notified) return
-  if (watchingSession(entry.sessionId)) {
-    logLine('skip watching approval ' + entry.sessionId + ':' + entry.key)
+  if (sessionActive(entry.sessionId)) {
+    logLine('skip active-session approval ' + entry.sessionId + ':' + entry.key)
     return
   }
   entry.notified = true
@@ -283,10 +292,17 @@ export function apply(ctx) {
           }
           try {
             const parsed = JSON.parse(await readBody(request, 2048))
-            presence.focused = parsed?.focused === true
-            presence.visible = parsed?.visible !== false
-            presence.at = Date.now()
-            presence.activeSessionId = typeof parsed?.activeSessionId === 'string' ? parsed.activeSessionId : null
+            const tabId = typeof parsed?.tabId === 'string' ? parsed.tabId : 'default'
+            tabs.set(tabId, {
+              closed: parsed?.closed === true,
+              visible: parsed?.visible !== false,
+              focused: parsed?.focused === true,
+              activeSessionId: typeof parsed?.activeSessionId === 'string' ? parsed.activeSessionId : null,
+              at: Date.now(),
+            })
+            for (const [id, tab] of tabs) {
+              if (Date.now() - tab.at > 10 * 60 * 1000) tabs.delete(id)
+            }
             for (const entry of pendingApprovals.values()) notifyApproval(entry)
             for (const entry of pendingQuestions.values()) notifyQuestion(entry)
             response.writeHead(200, json)
@@ -446,6 +462,7 @@ return JSON.stringify({ ok: true });
             if (consentNotified.has(callId)) return
             const answeredAt = consentAnswered.get(session.id) || 0
             if (answeredAt > Date.now() - 60000) return
+            if (sessionActive(session.id)) return
             consentNotified.add(callId)
             deliver({
               id: `agent-finish:${session.id}:consent:${callId}`,

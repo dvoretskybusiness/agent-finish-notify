@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
           style: { flex: 1, padding: '7px 10px', borderRadius: '9px', border: '1px solid ' + palette.border, background: 'rgba(255,255,255,0.06)', color: palette.text, cursor: 'pointer', font: 'inherit', fontSize: '12px' },
         }, 'Проверить')),
       h('div', { style: { color: palette.muted, fontSize: '11px', marginTop: '10px' } },
-        'Настройки хранятся на этой машине. Версия 2.1.2.'),
+        'Настройки хранятся на этой машине. Версия 2.2.0.'),
       )
     }
 
@@ -501,7 +501,6 @@ window.__ModuleLoader__.load({
         if (props.log) props.log.set({ items: [new Date().toLocaleTimeString() + ' ui финиш ' + Math.round(elapsed / 1000) + 'с', ...props.log.get().items].slice(0, 8) })
         if (!current.enabled || elapsed < current.thresholdMs) return
         const focused = isFocused()
-        if (!isVisible()) return
         if (current.quiet && focused) return
         const minutes = Math.max(1, Math.round(elapsed / 60000))
         showNotification('Задача выполнена', pageTitle() + ' · ' + minutes + ' мин')
@@ -553,6 +552,14 @@ window.__ModuleLoader__.load({
               }).catch(() => {})
             } catch {}
           }
+          const tabId = (() => {
+            try {
+              const key = 'notify-panel-tab'
+              let value = sessionStorage.getItem(key)
+              if (!value) { value = Math.random().toString(36).slice(2, 10); sessionStorage.setItem(key, value) }
+              return value
+            } catch { return 'tab' }
+          })()
           const activeSessions = new Set()
           const apiBase = (() => { try { return new URL(document.baseURI).pathname.replace(/[/]+$/, '') } catch { return '' } })()
           const settingsUrl = apiBase + '/__notify-panel/settings'
@@ -593,7 +600,7 @@ window.__ModuleLoader__.load({
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ focused: isFocused(), visible: isVisible(), at: Date.now(), activeSessionId: [...activeSessions][0] || null }),
+                body: JSON.stringify({ tabId, focused: isFocused(), visible: isVisible(), closed: false, at: Date.now(), activeSessionId: [...activeSessions][0] || null }),
               }).catch(() => {})
             } catch {}
           }
@@ -604,7 +611,7 @@ window.__ModuleLoader__.load({
           document.addEventListener('visibilitychange', postPresence)
           window.addEventListener('pagehide', () => {
             try {
-              navigator.sendBeacon(presenceUrl, JSON.stringify({ focused: false, at: Date.now(), activeSessionId: null }))
+              navigator.sendBeacon(presenceUrl, JSON.stringify({ tabId, focused: false, visible: false, closed: true, at: Date.now(), activeSessionId: null }))
             } catch {}
           })
 
@@ -621,8 +628,7 @@ window.__ModuleLoader__.load({
               lastApprovalKey = key
               const current = settings.get()
               if (!current.enabled) return
-              if (!isVisible()) return
-              if (current.quiet && isFocused()) return
+              if (current.quiet && isFocused() && isVisible()) return
               showNotification('Нужен ответ', pageTitle() + ' — агент ждёт подтверждения')
               setBadge()
               if (current.sound) playSound(current.soundId, current.volume)
@@ -658,7 +664,7 @@ window.__ModuleLoader__.load({
                 postInteraction({ active: true, sessionId: [...activeSessions][0] || null })
               }
               if (consentNotified) return
-              if (isVisible() && !isFocused()) {
+              if (!isFocused() || !isVisible()) {
                 consentNotified = true
                 showNotification('Нужен ответ', pageTitle() + ' — подтвердите действие')
                 setBadge()
@@ -674,7 +680,7 @@ window.__ModuleLoader__.load({
               if (questionNotified) return
               const current = settings.get()
               if (!current.enabled) return
-              if (isVisible() && !isFocused()) {
+              if (!isFocused() || !isVisible()) {
                 questionNotified = true
                 showNotification('Нужен ответ', pageTitle() + ' — агент задал вопрос')
                 setBadge()
@@ -738,7 +744,6 @@ window.__ModuleLoader__.load({
                 addLog(id.slice(-6) + ' финиш ' + Math.round(elapsed / 1000) + 'с активна=' + activeSessions.has(id))
                 if (activeSessions.has(id)) continue
                 if (!current.enabled || elapsed < current.thresholdMs) continue
-                if (!isVisible()) continue
                 const minutes = Math.max(1, Math.round(elapsed / 60000))
                 const title = entry.displayTitle || entry.title || 'Chatium Code'
                 showNotification('Задача выполнена', title + ' · ' + minutes + ' мин')
